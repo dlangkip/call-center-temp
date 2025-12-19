@@ -36,12 +36,10 @@ ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 st.markdown("""
 <style>
     /* 1. NUCLEAR OPTION FOR "MANAGE APP" BUTTON */
-    /* Target specific ID */
     button[data-testid="manage-app-button"] {
         display: none !important;
         visibility: hidden !important;
     }
-    /* Target the class pattern (nuclear backup) */
     button[class^="_terminalButton"] {
         display: none !important;
     }
@@ -97,6 +95,13 @@ def load_data():
         # EAT Timezone Adjustment (UTC+3)
         df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
         df['Hour'] = df['Timestamp'].dt.hour
+
+        # --- DATA NORMALIZATION FOR NEW COLUMNS ---
+        # Ensure new columns exist even if data is old, fill with generic/empty to prevent errors
+        if 'Call Status' not in df.columns: df['Call Status'] = 'Answered' # Assume old calls were answered
+        if 'Category' not in df.columns: df['Category'] = df.get('Disposition', 'Unknown')
+        if 'Specific Reason' not in df.columns: df['Specific Reason'] = 'N/A'
+        
         return df
     except Exception as e:
         st.error(f"Connection Error: {str(e)}")
@@ -118,13 +123,22 @@ if df.empty:
     time.sleep(10)
     st.rerun()
 
-# KPI ROW
-col1, col2, col3, col4 = st.columns(4)
+# --- KPI CALCULATION (UPDATED) ---
 total_calls = len(df)
-success_reg = len(df[df['Disposition'] == 'Successfully Registered'])
+
+# Logic: Count Success if it's in the old 'Disposition' OR the new 'Category'
+# We look for "Success" or "Registration" related keywords
+success_mask = (
+    df['Disposition'].astype(str).str.contains('Success|Register', case=False, na=False) | 
+    df['Category'].astype(str).str.contains('Registration', case=False, na=False)
+)
+success_reg = len(df[success_mask])
+
 top_source = df['Source'].mode()[0] if not df.empty else "N/A"
 top_skill = df['Skill'].mode()[0] if not df.empty else "N/A"
 
+# KPI ROW
+col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Inquiries", total_calls)
 col2.metric("Successful Registrations", success_reg, delta=f"{round(success_reg/total_calls*100, 1)}%" if total_calls > 0 else "0%")
 col3.metric("Top Traffic Source", top_source)
@@ -136,14 +150,33 @@ st.markdown("---")
 tab_market, tab_talent, tab_ops = st.tabs(["📻 Marketing & ROI", "🛠️ Talent & Geography", "🔒 Operations & Logs"])
 
 with tab_market:
+    # Row 1: Existing ROI + Call Status
     c1, c2 = st.columns(2)
-    fig_roi = px.bar(df, x='Source', color='Disposition', title="Conversion Quality", barmode='group', template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Safe)
+    
+    # Existing Chart
+    fig_roi = px.bar(df, x='Source', color='Category', title="Source Quality (By Category)", barmode='group', template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Safe)
     c1.plotly_chart(fig_roi, use_container_width=True)
     
+    # NEW CHART: Answered vs Unanswered
+    status_counts = df['Call Status'].value_counts().reset_index()
+    status_counts.columns = ['Status', 'Count']
+    fig_status = px.pie(status_counts, names='Status', values='Count', title="Call Status (Answer Rate)", hole=0.5, template="plotly_dark", color='Status', color_discrete_map={'Answered':'#00cc96', 'Unanswered':'#EF553B'})
+    c2.plotly_chart(fig_status, use_container_width=True)
+    
+    # Row 2: Hierarchical Breakdown + Time
+    c3, c4 = st.columns(2)
+
+    # NEW CHART: Sunburst (Category -> Reason)
+    # Filter out empty categories
+    df_clean = df[df['Category'] != '']
+    fig_sun = px.sunburst(df_clean, path=['Category', 'Specific Reason'], title="Inquiry Breakdown (Deep Dive)", template="plotly_dark")
+    c3.plotly_chart(fig_sun, use_container_width=True)
+
+    # Existing Chart
     traffic_counts = df['Hour'].value_counts().sort_index().reset_index()
     traffic_counts.columns = ['Hour', 'Calls']
     fig_time = px.line(traffic_counts, x='Hour', y='Calls', title="Hourly Volume", markers=True, template="plotly_dark", color_discrete_sequence=['#3366ff'])
-    c2.plotly_chart(fig_time, use_container_width=True)
+    c4.plotly_chart(fig_time, use_container_width=True)
 
 with tab_talent:
     c1, c2 = st.columns(2)
@@ -169,15 +202,30 @@ with tab_ops:
         st.write("### 🏆 Top Performing Agents")
         
         # Stats Calculation
+        # We define a helper to calculate success based on mixed data columns
+        def count_success(x):
+            # Check old 'Disposition' column
+            old_success = (x['Disposition'] == 'Successfully Registered').sum() if 'Disposition' in x else 0
+            # Check new 'Category' column
+            new_success = x['Category'].str.contains('Registration', case=False, na=False).sum() if 'Category' in x else 0
+            # If the columns overlap in time, favor the one that is present. 
+            # Simple sum works if data rows are distinct in time.
+            return old_success + new_success
+
         agent_stats = df.groupby('Agent Name').agg(
-            Total_Calls=('Timestamp', 'count'),
-            Successful_Reg=('Disposition', lambda x: (x == 'Successfully Registered').sum())
-        ).reset_index()
+            Total_Calls=('Timestamp', 'count')
+        )
         
+        # Apply success logic per agent
+        # (Slightly slower but accurate for mixed legacy/new data)
+        success_counts = df[success_mask].groupby('Agent Name').size()
+        agent_stats['Successful_Reg'] = success_counts
+        agent_stats['Successful_Reg'] = agent_stats['Successful_Reg'].fillna(0).astype(int)
+
         agent_stats['Conversion_Rate'] = (agent_stats['Successful_Reg'] / agent_stats['Total_Calls'] * 100).round(1)
         
         # Sorting
-        leaderboard = agent_stats.sort_values(by=['Successful_Reg', 'Conversion_Rate'], ascending=False).reset_index(drop=True)
+        leaderboard = agent_stats.sort_values(by=['Successful_Reg', 'Conversion_Rate'], ascending=False).reset_index()
         leaderboard.index += 1
         
         st.dataframe(
