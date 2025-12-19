@@ -31,26 +31,32 @@ def get_client():
 SHEET_NAME = 'M-ajira_Logs'
 ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 
-# --- CUSTOM CSS (THE STEALTH MODE FIX) ---
+# --- CUSTOM CSS (TARGETED FIX) ---
 st.markdown("""
 <style>
-    /* 1. HIDE ALL HEADERS & FOOTERS */
+    /* 1. HIDE THE SPECIFIC MANAGE APP BUTTON YOU FOUND */
+    button[data-testid="manage-app-button"] {
+        visibility: hidden !important;
+        display: none !important;
+    }
+
+    /* 2. HIDE ALL HEADERS & FOOTERS */
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     #MainMenu {visibility: hidden !important;}
     
-    /* 2. HIDE THE "MANAGE APP" & TOOLBARS */
+    /* 3. HIDE TOOLBARS & DECORATIONS */
     div[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
     div[data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
     div[data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
     
-    /* 3. REMOVE WHITE SPACE AT TOP */
+    /* 4. REMOVE WHITE SPACE AT TOP */
     .block-container {
         padding-top: 1rem !important;
         padding-bottom: 0rem !important;
     }
     
-    /* 4. DARK MODE CARD STYLING */
+    /* 5. DARK MODE CARD STYLING */
     div[data-testid="metric-container"] {
         background-color: #262730; 
         border: 1px solid #3d3f4e; 
@@ -58,7 +64,7 @@ st.markdown("""
         border-radius: 8px;
     }
     
-    /* 5. LEADERBOARD STYLING */
+    /* 6. LEADERBOARD STYLING */
     .leader-card { background: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #0052cc; }
     
 </style>
