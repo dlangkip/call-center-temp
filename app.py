@@ -31,19 +31,26 @@ def get_client():
 SHEET_NAME = 'M-ajira_Logs'
 ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 
-# --- CUSTOM CSS (THE CLEAN UI FIX) ---
+# --- CUSTOM CSS (THE STEALTH MODE FIX) ---
 st.markdown("""
 <style>
-    /* 1. Hide the top header (The bar with Deploy, Running, & Menu) */
-    header {visibility: hidden;}
+    /* 1. HIDE ALL HEADERS & FOOTERS */
+    header {visibility: hidden !important;}
+    footer {visibility: hidden !important;}
+    #MainMenu {visibility: hidden !important;}
     
-    /* 2. Hide the "Made with Streamlit" footer */
-    footer {visibility: hidden;}
+    /* 2. HIDE THE "MANAGE APP" & TOOLBARS */
+    div[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
+    div[data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
+    div[data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
     
-    /* 3. Hide the Hamburger Menu specifically (just in case) */
-    #MainMenu {visibility: hidden;}
+    /* 3. REMOVE WHITE SPACE AT TOP */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 0rem !important;
+    }
     
-    /* Dark Mode Card Styling */
+    /* 4. DARK MODE CARD STYLING */
     div[data-testid="metric-container"] {
         background-color: #262730; 
         border: 1px solid #3d3f4e; 
@@ -51,13 +58,9 @@ st.markdown("""
         border-radius: 8px;
     }
     
-    /* Leaderboard Styling */
+    /* 5. LEADERBOARD STYLING */
     .leader-card { background: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #0052cc; }
     
-    /* Adjust top padding since header is gone */
-    .block-container {
-        padding-top: 2rem;
-    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -145,7 +148,7 @@ with tab_ops:
     if st.session_state.admin_unlocked:
         st.success("🔓 Admin Access Granted")
         
-        # LEADERBOARD LOGIC
+        # LEADERBOARD
         st.write("### 🏆 Top Performing Agents")
         agent_stats = df.groupby('Agent Name').agg(
             Total_Calls=('Timestamp', 'count'),
