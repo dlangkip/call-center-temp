@@ -14,7 +14,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
-# --- 1. SETUP AUTHENTICATION (The Streamlit Cloud Way) ---
+# --- 1. SETUP AUTHENTICATION ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -31,25 +31,33 @@ def get_client():
 SHEET_NAME = 'M-ajira_Logs'
 ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 
-# --- CUSTOM CSS ---
+# --- CUSTOM CSS (THE CLEAN UI FIX) ---
 st.markdown("""
 <style>
+    /* 1. Hide the top header (The bar with Deploy, Running, & Menu) */
+    header {visibility: hidden;}
+    
+    /* 2. Hide the "Made with Streamlit" footer */
+    footer {visibility: hidden;}
+    
+    /* 3. Hide the Hamburger Menu specifically (just in case) */
+    #MainMenu {visibility: hidden;}
+    
+    /* Dark Mode Card Styling */
     div[data-testid="metric-container"] {
         background-color: #262730; 
         border: 1px solid #3d3f4e; 
         padding: 15px; 
         border-radius: 8px;
     }
-    h1 { font-size: 1.8rem !important; }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .css-1d391kg { padding-top: 1rem; }
     
     /* Leaderboard Styling */
     .leader-card { background: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #0052cc; }
-    .gold-border { border-left: 5px solid #FFD700 !important; }
-    .silver-border { border-left: 5px solid #C0C0C0 !important; }
-    .bronze-border { border-left: 5px solid #CD7F32 !important; }
+    
+    /* Adjust top padding since header is gone */
+    .block-container {
+        padding-top: 2rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -137,35 +145,24 @@ with tab_ops:
     if st.session_state.admin_unlocked:
         st.success("🔓 Admin Access Granted")
         
-        # --- NEW: LEADERBOARD LOGIC ---
+        # LEADERBOARD LOGIC
         st.write("### 🏆 Top Performing Agents")
-        
-        # Calculate stats per agent
         agent_stats = df.groupby('Agent Name').agg(
             Total_Calls=('Timestamp', 'count'),
             Successful_Reg=('Disposition', lambda x: (x == 'Successfully Registered').sum())
         ).reset_index()
         
-        # Calculate Conversion Rate
         agent_stats['Conversion_Rate'] = (agent_stats['Successful_Reg'] / agent_stats['Total_Calls'] * 100).round(1)
-        
-        # Sort by Success Count (primary) and Rate (secondary)
         leaderboard = agent_stats.sort_values(by=['Successful_Reg', 'Conversion_Rate'], ascending=False).reset_index(drop=True)
-        leaderboard.index += 1  # Start rank at 1
+        leaderboard.index += 1
         
-        # Display as a styled dataframe with progress bars
         st.dataframe(
             leaderboard,
             use_container_width=True,
             column_config={
                 "Agent Name": "Agent",
                 "Total_Calls": st.column_config.NumberColumn("Inbound Calls"),
-                "Successful_Reg": st.column_config.ProgressColumn(
-                    "Registrations",
-                    format="%d",
-                    min_value=0,
-                    max_value=int(leaderboard['Successful_Reg'].max())
-                ),
+                "Successful_Reg": st.column_config.ProgressColumn("Registrations", format="%d", min_value=0, max_value=int(leaderboard['Successful_Reg'].max())),
                 "Conversion_Rate": st.column_config.NumberColumn("Success Rate", format="%.1f%%")
             }
         )
