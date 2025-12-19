@@ -8,7 +8,7 @@ from google.oauth2.service_account import Credentials
 
 # --- CONFIGURATION (Must be first) ---
 st.set_page_config(
-    page_title="M-AJIRA Intelligence", 
+    page_title="M-AJIRA", 
     layout="wide", 
     page_icon="🇰🇪",
     initial_sidebar_state="collapsed"
@@ -104,7 +104,7 @@ def load_data():
 
 # --- MAIN DASHBOARD ---
 c_head, c_status = st.columns([3, 1])
-c_head.title("🇰🇪 M-AJIRA Intelligence")
+c_head.title("🇰🇪 M-AJIRA")
 
 # Live Clock (EAT)
 utc_now = datetime.datetime.utcnow()
