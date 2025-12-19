@@ -6,7 +6,7 @@ import datetime
 import time
 from google.oauth2.service_account import Credentials
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION (Must be first) ---
 st.set_page_config(
     page_title="M-AJIRA Intelligence", 
     layout="wide", 
@@ -22,6 +22,7 @@ SCOPES = [
 
 @st.cache_resource
 def get_client():
+    # Load credentials from Streamlit Secrets
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(
         creds_dict, scopes=SCOPES
@@ -31,16 +32,21 @@ def get_client():
 SHEET_NAME = 'M-ajira_Logs'
 ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 
-# --- CUSTOM CSS (TARGETED FIX) ---
+# --- CUSTOM CSS (NUCLEAR STEALTH MODE) ---
 st.markdown("""
 <style>
-    /* 1. HIDE THE SPECIFIC MANAGE APP BUTTON YOU FOUND */
+    /* 1. NUCLEAR OPTION FOR "MANAGE APP" BUTTON */
+    /* Target specific ID */
     button[data-testid="manage-app-button"] {
+        display: none !important;
         visibility: hidden !important;
+    }
+    /* Target the class pattern (nuclear backup) */
+    button[class^="_terminalButton"] {
         display: none !important;
     }
-
-    /* 2. HIDE ALL HEADERS & FOOTERS */
+    
+    /* 2. HIDE STANDARD HEADERS & FOOTERS */
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
     #MainMenu {visibility: hidden !important;}
@@ -65,8 +71,13 @@ st.markdown("""
     }
     
     /* 6. LEADERBOARD STYLING */
-    .leader-card { background: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #0052cc; }
-    
+    .leader-card { 
+        background: #262730; 
+        padding: 15px; 
+        border-radius: 10px; 
+        margin-bottom: 10px; 
+        border-left: 5px solid #0052cc; 
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -154,14 +165,18 @@ with tab_ops:
     if st.session_state.admin_unlocked:
         st.success("🔓 Admin Access Granted")
         
-        # LEADERBOARD
+        # LEADERBOARD LOGIC
         st.write("### 🏆 Top Performing Agents")
+        
+        # Stats Calculation
         agent_stats = df.groupby('Agent Name').agg(
             Total_Calls=('Timestamp', 'count'),
             Successful_Reg=('Disposition', lambda x: (x == 'Successfully Registered').sum())
         ).reset_index()
         
         agent_stats['Conversion_Rate'] = (agent_stats['Successful_Reg'] / agent_stats['Total_Calls'] * 100).round(1)
+        
+        # Sorting
         leaderboard = agent_stats.sort_values(by=['Successful_Reg', 'Conversion_Rate'], ascending=False).reset_index(drop=True)
         leaderboard.index += 1
         
@@ -171,7 +186,12 @@ with tab_ops:
             column_config={
                 "Agent Name": "Agent",
                 "Total_Calls": st.column_config.NumberColumn("Inbound Calls"),
-                "Successful_Reg": st.column_config.ProgressColumn("Registrations", format="%d", min_value=0, max_value=int(leaderboard['Successful_Reg'].max())),
+                "Successful_Reg": st.column_config.ProgressColumn(
+                    "Registrations", 
+                    format="%d", 
+                    min_value=0, 
+                    max_value=int(leaderboard['Successful_Reg'].max()) if not leaderboard.empty else 10
+                ),
                 "Conversion_Rate": st.column_config.NumberColumn("Success Rate", format="%.1f%%")
             }
         )
@@ -194,5 +214,5 @@ with tab_ops:
             else:
                 st.error("❌ Incorrect Password")
 
-time.sleep(30) # Refresh every 30s
+time.sleep(30) # Auto-refresh every 30s
 st.rerun()
