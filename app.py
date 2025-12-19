@@ -15,7 +15,6 @@ st.set_page_config(
 )
 
 # --- 1. SETUP AUTHENTICATION (The Streamlit Cloud Way) ---
-# We look for the credentials inside Streamlit's "Secrets"
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
@@ -23,7 +22,6 @@ SCOPES = [
 
 @st.cache_resource
 def get_client():
-    # Load credentials from Streamlit Secrets
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(
         creds_dict, scopes=SCOPES
@@ -46,6 +44,12 @@ st.markdown("""
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .css-1d391kg { padding-top: 1rem; }
+    
+    /* Leaderboard Styling */
+    .leader-card { background: #262730; padding: 15px; border-radius: 10px; margin-bottom: 10px; border-left: 5px solid #0052cc; }
+    .gold-border { border-left: 5px solid #FFD700 !important; }
+    .silver-border { border-left: 5px solid #C0C0C0 !important; }
+    .bronze-border { border-left: 5px solid #CD7F32 !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,8 +136,39 @@ with tab_ops:
 
     if st.session_state.admin_unlocked:
         st.success("🔓 Admin Access Granted")
-        st.write("### 👨‍💼 Agent Performance")
-        st.dataframe(df.groupby('Agent Name')['Disposition'].value_counts().unstack().fillna(0), use_container_width=True)
+        
+        # --- NEW: LEADERBOARD LOGIC ---
+        st.write("### 🏆 Top Performing Agents")
+        
+        # Calculate stats per agent
+        agent_stats = df.groupby('Agent Name').agg(
+            Total_Calls=('Timestamp', 'count'),
+            Successful_Reg=('Disposition', lambda x: (x == 'Successfully Registered').sum())
+        ).reset_index()
+        
+        # Calculate Conversion Rate
+        agent_stats['Conversion_Rate'] = (agent_stats['Successful_Reg'] / agent_stats['Total_Calls'] * 100).round(1)
+        
+        # Sort by Success Count (primary) and Rate (secondary)
+        leaderboard = agent_stats.sort_values(by=['Successful_Reg', 'Conversion_Rate'], ascending=False).reset_index(drop=True)
+        leaderboard.index += 1  # Start rank at 1
+        
+        # Display as a styled dataframe with progress bars
+        st.dataframe(
+            leaderboard,
+            use_container_width=True,
+            column_config={
+                "Agent Name": "Agent",
+                "Total_Calls": st.column_config.NumberColumn("Inbound Calls"),
+                "Successful_Reg": st.column_config.ProgressColumn(
+                    "Registrations",
+                    format="%d",
+                    min_value=0,
+                    max_value=int(leaderboard['Successful_Reg'].max())
+                ),
+                "Conversion_Rate": st.column_config.NumberColumn("Success Rate", format="%.1f%%")
+            }
+        )
         
         st.write("### 📂 Raw Call Logs")
         with st.expander("Expand to view Excel Data", expanded=True):
@@ -153,5 +188,5 @@ with tab_ops:
             else:
                 st.error("❌ Incorrect Password")
 
-time.sleep(30) # Refresh every 30s to stay within quotas
+time.sleep(30) # Refresh every 30s
 st.rerun()
