@@ -22,7 +22,6 @@ SCOPES = [
 
 @st.cache_resource
 def get_client():
-    # Load credentials from Streamlit Secrets
     creds_dict = st.secrets["gcp_service_account"]
     creds = Credentials.from_service_account_info(
         creds_dict, scopes=SCOPES
@@ -35,46 +34,16 @@ ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 # --- CUSTOM CSS (NUCLEAR STEALTH MODE) ---
 st.markdown("""
 <style>
-    /* 1. NUCLEAR OPTION FOR "MANAGE APP" BUTTON */
-    button[data-testid="manage-app-button"] {
-        display: none !important;
-        visibility: hidden !important;
-    }
-    button[class^="_terminalButton"] {
-        display: none !important;
-    }
-    
-    /* 2. HIDE STANDARD HEADERS & FOOTERS */
+    button[data-testid="manage-app-button"] {display: none !important;}
+    button[class^="_terminalButton"] {display: none !important;}
     header {visibility: hidden !important;}
     footer {visibility: hidden !important;}
-    #MainMenu {visibility: hidden !important;}
-    
-    /* 3. HIDE TOOLBARS & DECORATIONS */
-    div[data-testid="stToolbar"] {visibility: hidden !important; display: none !important;}
-    div[data-testid="stDecoration"] {visibility: hidden !important; display: none !important;}
-    div[data-testid="stStatusWidget"] {visibility: hidden !important; display: none !important;}
-    
-    /* 4. REMOVE WHITE SPACE AT TOP */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 0rem !important;
-    }
-    
-    /* 5. DARK MODE CARD STYLING */
+    div[data-testid="stToolbar"] {display: none !important;}
+    div[data-testid="stDecoration"] {display: none !important;}
+    div[data-testid="stStatusWidget"] {display: none !important;}
+    .block-container {padding-top: 1rem !important; padding-bottom: 0rem !important;}
     div[data-testid="metric-container"] {
-        background-color: #262730; 
-        border: 1px solid #3d3f4e; 
-        padding: 15px; 
-        border-radius: 8px;
-    }
-    
-    /* 6. LEADERBOARD STYLING */
-    .leader-card { 
-        background: #262730; 
-        padding: 15px; 
-        border-radius: 10px; 
-        margin-bottom: 10px; 
-        border-left: 5px solid #0052cc; 
+        background-color: #262730; border: 1px solid #3d3f4e; padding: 15px; border-radius: 8px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -92,14 +61,22 @@ def load_data():
         headers = [h.strip() for h in rows[0]]
         df = pd.DataFrame(rows[1:], columns=headers)
         
-        # EAT Timezone Adjustment (UTC+3)
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
+        # FIX 1: DATE PARSING (Handle MM/DD/YYYY correctly)
+        # We remove dayfirst=True because your data is 12/19 (Month First)
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
         df['Hour'] = df['Timestamp'].dt.hour
 
-        # --- DATA NORMALIZATION FOR NEW COLUMNS ---
-        # Ensure new columns exist even if data is old, fill with generic/empty to prevent errors
-        if 'Call Status' not in df.columns: df['Call Status'] = 'Answered' # Assume old calls were answered
-        if 'Category' not in df.columns: df['Category'] = df.get('Disposition', 'Unknown')
+        # FIX 2: HANDLE MISSING 'DISPOSITION' COLUMN
+        # If 'Disposition' (Old Name) is missing, create it from 'Category' (New Name)
+        if 'Disposition' not in df.columns:
+            if 'Category' in df.columns:
+                df['Disposition'] = df['Category']
+            else:
+                df['Disposition'] = 'N/A'
+
+        # Ensure new columns exist for the charts
+        if 'Call Status' not in df.columns: df['Call Status'] = 'Answered'
+        if 'Category' not in df.columns: df['Category'] = df['Disposition']
         if 'Specific Reason' not in df.columns: df['Specific Reason'] = 'N/A'
         
         return df
@@ -123,11 +100,11 @@ if df.empty:
     time.sleep(10)
     st.rerun()
 
-# --- KPI CALCULATION (UPDATED) ---
+# --- KPI CALCULATION ---
 total_calls = len(df)
 
-# Logic: Count Success if it's in the old 'Disposition' OR the new 'Category'
-# We look for "Success" or "Registration" related keywords
+# Logic: Count Success if keyword "Success" or "Register" is found in Category OR Disposition
+# This covers both old data (Successfully Registered) and new data (Registration Support)
 success_mask = (
     df['Disposition'].astype(str).str.contains('Success|Register', case=False, na=False) | 
     df['Category'].astype(str).str.contains('Registration', case=False, na=False)
@@ -150,33 +127,34 @@ st.markdown("---")
 tab_market, tab_talent, tab_ops = st.tabs(["📻 Marketing & ROI", "🛠️ Talent & Geography", "🔒 Operations & Logs"])
 
 with tab_market:
-    # Row 1: Existing ROI + Call Status
     c1, c2 = st.columns(2)
     
-    # Existing Chart
-    fig_roi = px.bar(df, x='Source', color='Category', title="Source Quality (By Category)", barmode='group', template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Safe)
-    c1.plotly_chart(fig_roi, use_container_width=True)
+    # 1. Source Quality
+    if not df.empty:
+        fig_roi = px.bar(df, x='Source', color='Category', title="Source Quality (By Category)", barmode='group', template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Safe)
+        c1.plotly_chart(fig_roi, use_container_width=True)
     
-    # NEW CHART: Answered vs Unanswered
-    status_counts = df['Call Status'].value_counts().reset_index()
-    status_counts.columns = ['Status', 'Count']
-    fig_status = px.pie(status_counts, names='Status', values='Count', title="Call Status (Answer Rate)", hole=0.5, template="plotly_dark", color='Status', color_discrete_map={'Answered':'#00cc96', 'Unanswered':'#EF553B'})
-    c2.plotly_chart(fig_status, use_container_width=True)
+    # 2. Call Status (Answered vs Unanswered)
+    if 'Call Status' in df.columns and not df.empty:
+        status_counts = df['Call Status'].value_counts().reset_index()
+        status_counts.columns = ['Status', 'Count']
+        fig_status = px.pie(status_counts, names='Status', values='Count', title="Call Answer Rate", hole=0.5, template="plotly_dark", color='Status', color_discrete_map={'Answered':'#00cc96', 'Unanswered':'#EF553B'})
+        c2.plotly_chart(fig_status, use_container_width=True)
     
-    # Row 2: Hierarchical Breakdown + Time
     c3, c4 = st.columns(2)
 
-    # NEW CHART: Sunburst (Category -> Reason)
-    # Filter out empty categories
+    # 3. Deep Dive (Sunburst)
     df_clean = df[df['Category'] != '']
-    fig_sun = px.sunburst(df_clean, path=['Category', 'Specific Reason'], title="Inquiry Breakdown (Deep Dive)", template="plotly_dark")
-    c3.plotly_chart(fig_sun, use_container_width=True)
+    if not df_clean.empty:
+        fig_sun = px.sunburst(df_clean, path=['Category', 'Specific Reason'], title="Inquiry Breakdown", template="plotly_dark")
+        c3.plotly_chart(fig_sun, use_container_width=True)
 
-    # Existing Chart
-    traffic_counts = df['Hour'].value_counts().sort_index().reset_index()
-    traffic_counts.columns = ['Hour', 'Calls']
-    fig_time = px.line(traffic_counts, x='Hour', y='Calls', title="Hourly Volume", markers=True, template="plotly_dark", color_discrete_sequence=['#3366ff'])
-    c4.plotly_chart(fig_time, use_container_width=True)
+    # 4. Hourly Volume
+    if not df.empty:
+        traffic_counts = df['Hour'].value_counts().sort_index().reset_index()
+        traffic_counts.columns = ['Hour', 'Calls']
+        fig_time = px.line(traffic_counts, x='Hour', y='Calls', title="Hourly Volume", markers=True, template="plotly_dark", color_discrete_sequence=['#3366ff'])
+        c4.plotly_chart(fig_time, use_container_width=True)
 
 with tab_talent:
     c1, c2 = st.columns(2)
@@ -198,33 +176,18 @@ with tab_ops:
     if st.session_state.admin_unlocked:
         st.success("🔓 Admin Access Granted")
         
-        # LEADERBOARD LOGIC
         st.write("### 🏆 Top Performing Agents")
         
-        # Stats Calculation
-        # We define a helper to calculate success based on mixed data columns
-        def count_success(x):
-            # Check old 'Disposition' column
-            old_success = (x['Disposition'] == 'Successfully Registered').sum() if 'Disposition' in x else 0
-            # Check new 'Category' column
-            new_success = x['Category'].str.contains('Registration', case=False, na=False).sum() if 'Category' in x else 0
-            # If the columns overlap in time, favor the one that is present. 
-            # Simple sum works if data rows are distinct in time.
-            return old_success + new_success
-
         agent_stats = df.groupby('Agent Name').agg(
             Total_Calls=('Timestamp', 'count')
         )
         
-        # Apply success logic per agent
-        # (Slightly slower but accurate for mixed legacy/new data)
+        # Count successes per agent
         success_counts = df[success_mask].groupby('Agent Name').size()
         agent_stats['Successful_Reg'] = success_counts
         agent_stats['Successful_Reg'] = agent_stats['Successful_Reg'].fillna(0).astype(int)
-
         agent_stats['Conversion_Rate'] = (agent_stats['Successful_Reg'] / agent_stats['Total_Calls'] * 100).round(1)
         
-        # Sorting
         leaderboard = agent_stats.sort_values(by=['Successful_Reg', 'Conversion_Rate'], ascending=False).reset_index()
         leaderboard.index += 1
         
