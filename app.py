@@ -28,7 +28,7 @@ def get_client():
     )
     return gspread.authorize(creds)
 
-SHEET_NAME = 'M-ajira_Logs'
+SHEET_NAME = 'M-ajira_Logs_Test'
 ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 
 # --- CUSTOM CSS (NUCLEAR STEALTH MODE) ---
