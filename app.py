@@ -28,7 +28,11 @@ def get_client():
     )
     return gspread.authorize(creds)
 
-SHEET_NAME = 'M-ajira_Logs_Test'
+# ==========================================
+# ⚙️ SHEET CONFIGURATION
+# To switch to TEST mode, change this to: 'M-ajira_Logs_Test'
+# ==========================================
+SHEET_NAME = 'M-ajira_Logs_Test' 
 ADMIN_PASSWORD = st.secrets["general"]["admin_password"]
 
 # --- CUSTOM CSS (NUCLEAR STEALTH MODE) ---
@@ -61,23 +65,20 @@ def load_data():
         headers = [h.strip() for h in rows[0]]
         df = pd.DataFrame(rows[1:], columns=headers)
         
-        # FIX 1: DATE PARSING (Handle MM/DD/YYYY correctly)
-        # We remove dayfirst=True because your data is 12/19 (Month First)
-        df['Timestamp'] = pd.to_datetime(df['Timestamp'], errors='coerce')
+        # --- FIX 1: DATE PARSING ---
+        # We use dayfirst=True because data arrives as DD/MM/YYYY (e.g. 20/12/2025)
+        # We NO LONGER add +11 hours because the UserScript sends EAT time directly.
+        df['Timestamp'] = pd.to_datetime(df['Timestamp'], dayfirst=True, errors='coerce')
         df['Hour'] = df['Timestamp'].dt.hour
 
-        # FIX 2: HANDLE MISSING 'DISPOSITION' COLUMN
-        # If 'Disposition' (Old Name) is missing, create it from 'Category' (New Name)
-        if 'Disposition' not in df.columns:
-            if 'Category' in df.columns:
-                df['Disposition'] = df['Category']
-            else:
-                df['Disposition'] = 'N/A'
-
-        # Ensure new columns exist for the charts
+        # --- FIX 2: HANDLE MISSING COLUMNS (Backward Compatibility) ---
         if 'Call Status' not in df.columns: df['Call Status'] = 'Answered'
-        if 'Category' not in df.columns: df['Category'] = df['Disposition']
+        if 'Category' not in df.columns: df['Category'] = df.get('Disposition', 'General Inquiry')
         if 'Specific Reason' not in df.columns: df['Specific Reason'] = 'N/A'
+        
+        # --- FIX 3: THE NEW 'LEAD STATUS' FIELD ---
+        if 'Lead Status' not in df.columns: 
+            df['Lead Status'] = 'Inquiry Only' # Default for old rows
         
         return df
     except Exception as e:
@@ -103,13 +104,11 @@ if df.empty:
 # --- KPI CALCULATION ---
 total_calls = len(df)
 
-# Logic: Count Success if keyword "Success" or "Register" is found in Category OR Disposition
-# This covers both old data (Successfully Registered) and new data (Registration Support)
-success_mask = (
-    df['Disposition'].astype(str).str.contains('Success|Register', case=False, na=False) | 
-    df['Category'].astype(str).str.contains('Registration', case=False, na=False)
-)
-success_reg = len(df[success_mask])
+# --- NEW KPI LOGIC (Based on Lead Status) ---
+# 'Interested' = Hot Lead
+# 'Registered' = Paid Activation (Satisfies Manager)
+interested_mask = df['Lead Status'].isin(['Interested', 'Registered', 'Registered (Paid Activation)'])
+interested_count = len(df[interested_mask])
 
 top_source = df['Source'].mode()[0] if not df.empty else "N/A"
 top_skill = df['Skill'].mode()[0] if not df.empty else "N/A"
@@ -117,7 +116,7 @@ top_skill = df['Skill'].mode()[0] if not df.empty else "N/A"
 # KPI ROW
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Inquiries", total_calls)
-col2.metric("Interested Candidates", success_reg, delta=f"{round(success_reg/total_calls*100, 1)}%" if total_calls > 0 else "0%")
+col2.metric("Interested Candidates", interested_count, delta=f"{round(interested_count/total_calls*100, 1)}%" if total_calls > 0 else "0%")
 col3.metric("Top Traffic Source", top_source)
 col4.metric("Top Requested Skill", top_skill)
 
@@ -134,11 +133,21 @@ with tab_market:
         fig_roi = px.bar(df, x='Source', color='Category', title="Source Quality (By Category)", barmode='group', template="plotly_dark", color_discrete_sequence=px.colors.qualitative.Safe)
         c1.plotly_chart(fig_roi, use_container_width=True)
     
-    # 2. Call Status (Answered vs Unanswered)
-    if 'Call Status' in df.columns and not df.empty:
-        status_counts = df['Call Status'].value_counts().reset_index()
-        status_counts.columns = ['Status', 'Count']
-        fig_status = px.pie(status_counts, names='Status', values='Count', title="Call Answer Rate", hole=0.5, template="plotly_dark", color='Status', color_discrete_map={'Answered':'#00cc96', 'Unanswered':'#EF553B'})
+    # 2. Lead Status Breakdown (REPLACES OLD STATUS CHART)
+    if 'Lead Status' in df.columns and not df.empty:
+        lead_counts = df['Lead Status'].value_counts().reset_index()
+        lead_counts.columns = ['Status', 'Count']
+        
+        # Color Map: Green=Interested, Orange=Paid, Blue=Inquiry, Red=Not Interested
+        color_map = {
+            'Interested': '#00cc96', 
+            'Registered': '#FFA15A', 
+            'Registered (Paid Activation)': '#FFA15A',
+            'Inquiry Only': '#636efa', 
+            'Not Interested': '#EF553B'
+        }
+        
+        fig_status = px.pie(lead_counts, names='Status', values='Count', title="Lead Conversion (Interest Level)", hole=0.5, template="plotly_dark", color='Status', color_discrete_map=color_map)
         c2.plotly_chart(fig_status, use_container_width=True)
     
     c3, c4 = st.columns(2)
@@ -182,8 +191,8 @@ with tab_ops:
             Total_Calls=('Timestamp', 'count')
         )
         
-        # Count successes per agent
-        success_counts = df[success_mask].groupby('Agent Name').size()
+        # Calculate Success based on Lead Status (Interested OR Registered)
+        success_counts = df[interested_mask].groupby('Agent Name').size()
         agent_stats['Successful_Reg'] = success_counts
         agent_stats['Successful_Reg'] = agent_stats['Successful_Reg'].fillna(0).astype(int)
         agent_stats['Conversion_Rate'] = (agent_stats['Successful_Reg'] / agent_stats['Total_Calls'] * 100).round(1)
@@ -198,7 +207,7 @@ with tab_ops:
                 "Agent Name": "Agent",
                 "Total_Calls": st.column_config.NumberColumn("Inbound Calls"),
                 "Successful_Reg": st.column_config.ProgressColumn(
-                    "Registrations", 
+                    "Interested/Reg", 
                     format="%d", 
                     min_value=0, 
                     max_value=int(leaderboard['Successful_Reg'].max()) if not leaderboard.empty else 10
@@ -209,6 +218,7 @@ with tab_ops:
         
         st.write("### 📂 Raw Call Logs")
         with st.expander("Expand to view Excel Data", expanded=True):
+            # Sort by Timestamp descending so newest calls are first
             st.dataframe(df.sort_values('Timestamp', ascending=False), use_container_width=True)
             
         if st.button("🔒 Lock Data"):
