@@ -117,7 +117,7 @@ top_skill = df['Skill'].mode()[0] if not df.empty else "N/A"
 # KPI ROW
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Total Inquiries", total_calls)
-col2.metric("Successful Registrations", success_reg, delta=f"{round(success_reg/total_calls*100, 1)}%" if total_calls > 0 else "0%")
+col2.metric("Interested Candidates", success_reg, delta=f"{round(success_reg/total_calls*100, 1)}%" if total_calls > 0 else "0%")
 col3.metric("Top Traffic Source", top_source)
 col4.metric("Top Requested Skill", top_skill)
 
